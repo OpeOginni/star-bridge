@@ -2,6 +2,9 @@ import { Bot, Context, InlineKeyboard, session, type SessionFlavor } from "gramm
 import dotenv from "dotenv";
 import * as ethers from "ethers";
 import mongoose from "mongoose";
+import * as viem from "viem"
+import { sendToken } from "./blockchain/sendToken";
+import { Tokens } from "./lib/tokens";
 
 dotenv.config();
 
@@ -37,7 +40,7 @@ interface SessionData {
     step: string;
     walletAddress: string;
     selectedChain: string;
-    selectedToken: string;
+    selectedToken: Tokens | "";
 }
 
 // Custom context type
@@ -68,8 +71,8 @@ const SUPPORTED_CHAINS = {
 };
 
 const SUPPORTED_TOKENS = {
-    "BSC": ["USDT", "BNB", "WBNB", "USDC"],
-    "opBNB": ["USDT", "WBNB"]
+    "BSC": [Tokens.USDT, Tokens.USDC],
+    "opBNB": [Tokens.USDT]
 };
 
 // Bundle options (amount in USD)
@@ -135,7 +138,7 @@ bot.command("addwallet", async (ctx) => {
         );
     }
 
-    if (!ethers.isAddress(address)) {
+    if (!viem.isAddress(address)) {
         return ctx.reply("❌ Invalid wallet address. Please provide a valid address.");
     }
 
@@ -212,7 +215,7 @@ bot.callbackQuery(/^token_(.+)$/, async (ctx) => {
     console.log(ctx.session)
     console.log(ctx.match)
     const token = ctx.match[1];
-    ctx.session.selectedToken = token;
+    ctx.session.selectedToken = token as Tokens;
 
     // Create bundles keyboard
     const keyboard = new InlineKeyboard();
@@ -238,10 +241,6 @@ bot.callbackQuery(/^bundle_(.+)$/, async (ctx) => {
     if (!bundle) return;
 
     const payload = {chatId: ctx.chatId, walletAddress: ctx.session.walletAddress, chain: ctx.session.selectedChain, token: ctx.session.selectedToken, stars: bundle.stars}
-
-    await bot.api.sendInvoice(ctx.chatId!, `${ctx.session.selectedToken} Purchase`, `Purchase of ${bundle.amount}${ctx.session.selectedToken} on ${ctx.session.selectedChain}`, JSON.stringify(payload), "XTR", [{label: "Confirm", amount: bundle.stars}])
-
-    // Here you would implement the actual purchase logic
     await ctx.editMessageText(
         `🌉 Star Bridge Exchange Summary\n\n` +
         `Token: ${ctx.session.selectedToken}\n` +
@@ -251,6 +250,13 @@ bot.callbackQuery(/^bundle_(.+)$/, async (ctx) => {
         `Destination: ${ctx.session.walletAddress}\n\n` +
         `To bridge your tokens, please send ${bundle.stars} stars.`
     );
+
+    await bot.api.sendInvoice(ctx.chatId!, `${ctx.session.selectedToken} Purchase`, `Purchase of ${bundle.amount}${ctx.session.selectedToken} on ${ctx.session.selectedChain}`, JSON.stringify(payload), "XTR", [{label: "Confirm", amount: bundle.stars}])
+
+    console.log("Completed Purchase")
+    // await sendToken(ctx.session.walletAddress as `0x${string}`, ctx.session.selectedChain, ctx.session.selectedToken as Tokens, bundle.amount);
+    // Here you would implement the actual purchase logic
+
 });
 
 // History command
