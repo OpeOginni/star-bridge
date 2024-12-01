@@ -1,47 +1,39 @@
 import { Bot, Context, InlineKeyboard, session, type SessionFlavor } from "grammy";
 import dotenv from "dotenv";
-import * as ethers from "ethers";
 import mongoose from "mongoose";
 import * as viem from "viem"
 import { sendToken } from "./blockchain/sendToken";
 import { Tokens } from "./lib/tokens";
+import { getVaultBalance } from "./blockchain/getVaultBalance";
+import { type PaymentPayload, PaymentStatus, PaymentStep, type SessionData } from "./lib/types";
+import { PreCheckoutError } from "./lib/CustomErrors";
+import { Chain, CHAIN_CONFIG } from "./lib/chains";
 
 dotenv.config();
-
-// Define interfaces
-interface UserData {
-    chatId: number;
-    walletAddress?: string;
-    purchaseHistory: {
-        token: string;
-        chain: string;
-        amount: number;
-        stars: number;
-        date: Date;
-    }[];
-}
 
 // Define mongoose schema
 const userSchema = new mongoose.Schema({
     chatId: { type: Number, required: true, unique: true },
     walletAddress: String,
-    purchaseHistory: [{
-        token: String,
-        chain: String,
-        amount: Number,
-        stars: Number,
-        date: { type: Date, default: Date.now }
-    }]
 });
 
-const User = mongoose.model('User', userSchema);
+const paymentsSchema = new mongoose.Schema({
+    chatId: { type: Number, required: true },
+    walletAddress: { type: String, required: true },
+    chain: { type: String, required: true },
+    token: { type: String, required: true },
+    stars: { type: Number, required: true },
+    amountInToken: { type: Number, required: true },
+    amountInUSD: { type: Number, required: true },
+    creationTimestamp: { type: Date, default: Date.now },
+    completionTimestamp: { type: Date, required: false },
+    status: { type: String, required: true },
+    telegramPaymentChargeId: { type: String, required: false },
+    transactionId: { type: String, required: false },
+})
 
-interface SessionData {
-    step: string;
-    walletAddress: string;
-    selectedChain: string;
-    selectedToken: Tokens | "";
-}
+const User = mongoose.model('User', userSchema);
+const Payment = mongoose.model('Payment', paymentsSchema);
 
 // Custom context type
 type MyContext = Context & SessionFlavor<SessionData>;
@@ -50,10 +42,10 @@ const bot = new Bot<MyContext>(process.env.BOT_TOKEN!);
 
 function initial(): SessionData {
     return {
-        step: "",
+        step: PaymentStep.IDLE,
         walletAddress: "",
-        selectedChain: "",
-        selectedToken: "",
+        selectedChain: null,
+        selectedToken: null,
     };
 }
 // Add this before registering any command handlers
@@ -66,20 +58,21 @@ mongoose.connect(process.env.MONGODB_URI!)
 
 // Available chains and tokens (you can expand this)
 const SUPPORTED_CHAINS = {
-    "BSC": "Binance Smart Chain",
-    "opBNB": "opBNB"
+    [Chain.BSC]: "Binance Smart Chain",
+    [Chain.OPBNB]: "opBNB"
 };
 
 const SUPPORTED_TOKENS = {
-    "BSC": [Tokens.USDT, Tokens.USDC],
-    "opBNB": [Tokens.USDT]
+    [Chain.BSC]: [Tokens.USDT, Tokens.USDC],
+    [Chain.OPBNB]: [Tokens.USDT]
 };
 
 // Bundle options (amount in USD)
 const BUNDLES = [
-    { amount: 10, stars: 1000 },
-    { amount: 50, stars: 5500 },
-    { amount: 100, stars: 12000 }
+    { amount: 0.015, stars: 1 },
+    { amount: 0.75, stars: 50 },
+    { amount: 3.75, stars: 250 },
+    { amount: 7.5, stars: 500 }
 ];
 
 // Set bot commands
@@ -87,7 +80,7 @@ await bot.api.setMyCommands([
     { command: "start", description: "Start the bot" },
     { command: "help", description: "Show help text" },
     { command: "buy", description: "Buy tokens with stars" },
-    { command: "history", description: "View purchase history" },
+    { command: "history", description: "View Payment history" },
     { command: "wallet", description: "View your wallet address" },
     { command: "addwallet", description: "Add or update wallet address" },
     { command: "removewallet", description: "Remove your wallet address" }
@@ -199,7 +192,7 @@ bot.callbackQuery(/^chain_(.+)$/, async (ctx) => {
     console.log(ctx.update.callback_query.data)
     const chain = ctx.match[1]
 
-    ctx.session.selectedChain = chain;
+    ctx.session.selectedChain = chain as Chain;
 
     // Create token selection keyboard
     const keyboard = new InlineKeyboard();
@@ -234,48 +227,148 @@ bot.callbackQuery(/^token_(.+)$/, async (ctx) => {
 
 // Handle bundle selection
 bot.callbackQuery(/^bundle_(.+)$/, async (ctx) => {
-    console.log(ctx.session)
     const amount = Number(ctx.match[1]);
     const bundle = BUNDLES.find(b => b.amount === amount);
 
     if (!bundle) return;
 
-    const payload = {chatId: ctx.chatId, walletAddress: ctx.session.walletAddress, chain: ctx.session.selectedChain, token: ctx.session.selectedToken, stars: bundle.stars}
+    const payload: PaymentPayload = {
+        chatId: ctx.chat!.id,
+        walletAddress: ctx.session.walletAddress,
+        chain: ctx.session.selectedChain!,
+        token: ctx.session.selectedToken!,
+        stars: bundle.stars,
+        amountInToken: bundle.amount,
+        amountInUSD: bundle.amount,
+        creationTimestamp: Date.now(),
+        status: PaymentStatus.PENDING,
+        telegramPaymentChargeId: '', // Will be updated after invoice creation
+        transactionId: '' // Will be filled when transaction is sent
+    };
+
+    // Create payment record in DB
+    const payment = await Payment.create(payload);
+
     await ctx.editMessageText(
         `🌉 Star Bridge Exchange Summary\n\n` +
-        `Token: ${ctx.session.selectedToken}\n` +
-        `Network: ${SUPPORTED_CHAINS[ctx.session.selectedChain as keyof typeof SUPPORTED_CHAINS]}\n` +
-        `Amount: $${amount}\n` +
-        `Stars Required: ${bundle.stars} ⭐\n` +
-        `Destination: ${ctx.session.walletAddress}\n\n` +
-        `To bridge your tokens, please send ${bundle.stars} stars.`
+        `Network: ${SUPPORTED_CHAINS[payload.chain]}\n` +
+        `Token: ${payload.token}\n` +
+        `Amount: ${payload.amountInToken} ${payload.token}\n` +
+        `Stars Required: ${payload.stars} ⭐\n` +
+        `Destination: ${payload.walletAddress}\n\n` +
+        `Status: Awaiting Payment\n` +
+        `To bridge your tokens, please send ${payload.stars} stars.`
     );
 
-    await bot.api.sendInvoice(ctx.chatId!, `${ctx.session.selectedToken} Purchase`, `Purchase of ${bundle.amount}${ctx.session.selectedToken} on ${ctx.session.selectedChain}`, JSON.stringify(payload), "XTR", [{label: "Confirm", amount: bundle.stars}])
+    ctx.session.currentPaymentId = payment._id;
+    ctx.session.step = PaymentStep.PAYMENT_PENDING;
 
-    console.log("Completed Purchase")
-    // await sendToken(ctx.session.walletAddress as `0x${string}`, ctx.session.selectedChain, ctx.session.selectedToken as Tokens, bundle.amount);
-    // Here you would implement the actual purchase logic
+    await bot.api.sendInvoice(
+        payload.chatId,
+        `${payload.token} Payment`,
+        `Payment of $${payload.amountInUSD} ${payload.token} on ${payload.chain}`,
+        "{}",
+        "XTR",
+        [{label: "Confirm", amount: payload.stars}]
+    );
+});
 
+bot.on("pre_checkout_query", async(ctx) => {
+    try{
+        const payload = JSON.parse(ctx.preCheckoutQuery.invoice_payload) as PaymentPayload;
+
+        if (payload.stars !== ctx.preCheckoutQuery.total_amount) {
+            throw new PreCheckoutError("Stars amount mismatch");
+        }
+
+        const vaultBalance = await getVaultBalance(payload.chain, payload.token);
+        if (Number.parseFloat(vaultBalance) < payload.amountInToken) {
+            throw new PreCheckoutError("Insufficient vault balance");
+        }
+
+        payload.status = PaymentStatus.PROCESSING;
+
+        await ctx.answerPreCheckoutQuery(true);
+
+    }catch(error){
+        if(error instanceof PreCheckoutError){
+            await ctx.answerPreCheckoutQuery(false, error.message);
+        }else{
+            await ctx.answerPreCheckoutQuery(false, "An error occurred");
+        }
+    }
+  });
+
+// Update successful payment handler
+bot.on("message:successful_payment", async (ctx) => {
+    if (!ctx.message?.successful_payment || !ctx.from || !ctx.session.currentPaymentId) {
+        return;
+    }
+
+    try {
+        const payment = await Payment.findById(ctx.session.currentPaymentId);
+        if (!payment) {
+            throw new Error('Payment not found');
+        }
+        
+        // Process the token transfer
+        const tx = await sendToken(
+            payment.walletAddress as `0x${string}`,
+            payment.chain as Chain,
+            payment.token as Tokens,
+            payment.amountInToken
+        );
+
+        // Update payment status
+        await Payment.findByIdAndUpdate(payment._id, {
+            status: PaymentStatus.COMPLETED,
+            transactionId: tx,
+            telegramPaymentChargeId: ctx.message.successful_payment.provider_payment_charge_id
+        });
+
+        await ctx.reply(
+            `✅ Payment Successful!\n\n` +
+            `Transaction Hash: \`${tx}\`\n` +
+            `View on Explorer: ${CHAIN_CONFIG[payment.chain as Chain].explorer}/tx/${tx}`,
+            { parse_mode: "MarkdownV2" }
+        );
+
+    } catch (error) {
+        console.error('Payment processing error:', error);
+        await ctx.reply("⚠️ There was an error processing your payment. Our team has been notified.");
+        
+        // Update payment status to failed
+        await Payment.findByIdAndUpdate(ctx.session.currentPaymentId, {
+            status: PaymentStatus.FAILED
+        });
+        
+        // You might want to implement a refund mechanism here
+        await ctx.refundStarPayment();
+    } finally {
+        // Reset session
+        ctx.session.step = PaymentStep.IDLE;
+        ctx.session.currentPaymentId = undefined;
+    }
 });
 
 // History command
 bot.command("history", async (ctx) => {
-    const user = await User.findOne({ chatId: ctx.chat.id });
+    const payments = await Payment.find({ chatId: ctx.chat.id });
 
-    if (!user?.purchaseHistory?.length) {
-        return ctx.reply("You haven't made any purchases yet.");
+    if (!payments?.length) {
+        return ctx.reply("You haven't made any Payments yet.");
     }
 
-    const history = user.purchaseHistory
-        .map((purchase, i) =>
-            `${i + 1}. ${purchase.amount} ${purchase.token} on ${purchase.chain}\n` +
-            `   Stars: ${purchase.stars} ⭐\n` +
-            `   Date: ${purchase.date.toLocaleDateString()}`
+    const history = payments
+        .map((Payment, i) =>
+            `${i + 1}. ${Payment.amountInToken} ${Payment.token} on ${Payment.chain}\n` +
+            `   Stars: ${Payment.stars} ⭐\n` +
+            `   Status: ${Payment.status}\n` +
+            `   Date: ${Payment.completionTimestamp?.toLocaleDateString()}`
         )
         .join('\n\n');
 
-    await ctx.reply(`Purchase History:\n\n${history}`);
+    await ctx.reply(`Payment History:\n\n${history}`);
 });
 
 // Help command
