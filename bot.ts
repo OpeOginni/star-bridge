@@ -282,7 +282,7 @@ bot.on("pre_checkout_query", async(ctx) => {
         }
 
         const vaultBalance = await getVaultBalance(payload.chain, payload.token);
-        if (Number.parseFloat(vaultBalance) < payload.amountInToken) {
+        if (vaultBalance < payload.amountInToken) {
             throw new PreCheckoutError("Insufficient vault balance");
         }
 
