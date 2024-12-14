@@ -1,39 +1,82 @@
-# **StarBridge**  
-### *Convert Telegram Stars to Stablecoins on BNB and opBNB Chains*  
+# Star Bridge Bot 🌉
 
-## **Overview**  
-StarBridge is a Telegram bot that enables users to top up their Web3 wallets by converting Telegram Stars into stablecoins on the BNB and opBNB chains.  
+Convert Telegram Stars into crypto tokens instantly! Star Bridge is a Telegram bot that allows users to exchange their Telegram Stars for various cryptocurrencies across multiple blockchain networks.
 
-This project bridges Web2 and Web3 by leveraging Telegram's native payment system and blockchain technology to simplify wallet top-ups for users, providing a seamless and secure experience.  
+## Features
 
----
+### Core Functionality
+- **Multi-Chain Support**: Currently supports BSC and opBNB networks
+- **Multiple Tokens**: Support for USDT and USDC (varies by chain)
+- **Automatic Rate**: 1 Star = $0.015 USD
+- **Real-time Conversion**: Instant token transfers upon successful star payment
+- **Vault Balance Checking**: Prevents failed transactions by checking vault balance before processing
 
-## **Features**  
+### User Features
+- Wallet Management
+  - `/addwallet` - Add or update wallet address
+  - `/removewallet` - Remove wallet address
+  - `/wallet` - View current wallet address
+- Transaction Management
+  - `/buy` - Initiate a star-to-crypto conversion
+  - `/history` - View transaction history
+  - `/simulate` - Test the payment flow (simulation mode)
 
-### **Core Features**  
-- Convert Telegram Stars to crypto (e.g., USDT, WBNB) on the BNB and opBNB chains.  
-- Supports direct deposits to user-provided wallet addresses including telegram.  
-- Real-time conversion rates for accurate transactions.  
+### Security Features
+- Pre-transaction vault balance verification
+- Secure wallet address validation
+- Transaction status tracking
+- Error handling and user feedback
 
-### **Premium Features**  
-- Reduced transaction fees for premium users.  
-- Priority transaction processing.  
+## Architecture
 
----
+### Core Components
 
-## **How It Works**  
+1. **Bot Layer** (`bot.ts`)
+   - Handles user interactions
+   - Manages command processing
+   - Implements payment flow
+   - Session management
 
-1. **Start the Bot**:  
-   - Add the StarBridge bot to your Telegram account.  
-   - Use `/start` to initialize the bot and link your wallet.  
+2. **Blockchain Layer** (`blockchain/`)
+   - `sendToken.ts` - Handles token transfers
+   - `sendNative.ts` - Handles native token transfers
+   - `getBalance.ts` - Checks vault balances
 
-2. **Top-Up Your Wallet**:  
-   - Send Telegram Stars to the bot via the `/topup` command.  
-   - Provide your Web3 wallet address for deposit.  
+3. **Database Layer** (MongoDB)
+   - User data storage
+   - Transaction history
+   - Payment tracking
 
-3. **Receive Stablecoins**:  
-   - Once payment is confirmed, the bot processes the transaction and sends stablecoins to your wallet.  
+4. **Smart Contract** (`StarBridgeVault.sol`)
+   - Manages token vault
+   - Handles token deposits/withdrawals
+   - Supports both ERC20 and native tokens
 
-4. **Check Balance and History**:  
-   - Use `/balance` to view your remaining Telegram Stars.  
-   - Use `/history` to check your transaction records.  
+
+## Payment Flow
+
+1. User initiates payment (`/buy` command)
+2. Selects blockchain network
+3. Selects token
+4. System checks vault balance
+5. Creates payment invoice
+6. Processes star payment
+7. Transfers tokens
+8. Updates transaction status
+
+
+## Security Considerations
+
+- All wallet addresses are validated
+- Vault balance is checked before transactions
+- Payment status is tracked throughout the process
+- Error handling for failed transactions
+- Secure session management
+
+## Future Improvements
+
+- More token options
+- Enhanced error reporting
+- Admin dashboard
+- Rate adjustment mechanism
+- Automated refund system
