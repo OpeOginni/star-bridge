@@ -2,7 +2,7 @@ import { Tokens } from "../../lib/tokens";
 import { bsc, bscTestnet, opBNB, opBNBTestnet } from "viem/chains"
 import { TOKENS_MAP } from "../../lib/tokens";
 
-export const HARDHAT_TOKENS_MAP = {
+export const HARDHAT_TOKENS_MAP: {[key: string]: {[key: string]: `0x${string}`}} = {
     [Tokens.USDT]: {
         bsc : TOKENS_MAP[Tokens.USDT][bsc.name],
         bscTestnet : TOKENS_MAP[Tokens.USDT][bscTestnet.name],

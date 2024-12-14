@@ -4,11 +4,11 @@ import dotenv from "dotenv";
 
 dotenv.config({path: "../.env"});
 
-const privateKey = process.env.PRIVATE_KEY;
+const privateKey = process.env.ADMIN_WALLET_PRIVATE_KEY;
 const alchemyApiKey = process.env.ALCHEMY_API_KEY;
 
 if(!privateKey || !alchemyApiKey)
-  throw new Error("PRIVATE_KEY or ALCHEMY_API_KEY not found in environment variables");
+  throw new Error("ADMIN_WALLET_PRIVATE_KEY or ALCHEMY_API_KEY not found in environment variables");
 
 const config: HardhatUserConfig = {
   solidity: "0.8.28",
@@ -23,11 +23,13 @@ const config: HardhatUserConfig = {
     },
     opBNB: {
       url: `https://opbnb-mainnet.g.alchemy.com/v2/${alchemyApiKey}`,
-      accounts: [privateKey]
+      accounts: [privateKey],
+      chainId: 204
     },
     opBNBTestnet: {
       url: `https://opbnb-testnet.g.alchemy.com/v2/${alchemyApiKey}`,
-      accounts: [privateKey]
+      accounts: [privateKey],
+      chainId: 5611
     }
   },
   etherscan: {
