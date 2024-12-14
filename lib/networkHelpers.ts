@@ -5,7 +5,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 export const getNetworkHttp = (chain: Chain) => {
-    const alchemyKey = process.env.ALCHEMY_KEY;
+    const alchemyKey = process.env.ALCHEMY_API_KEY;
 
     if(chain ===  bscTestnet) 
         return `https://bnb-testnet.g.alchemy.com/v2/${alchemyKey}`

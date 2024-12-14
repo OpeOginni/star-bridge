@@ -3,7 +3,11 @@
   "module": "index.ts",
   "scripts": {
     "start": "bun run bot.ts",
-    "dev": "bun run bot.ts --watch"
+    "dev": "bun run bot.ts --watch",
+    "ignition:bsc": "cd contract-hardhat && npx hardhat ignition deploy ignition/modules/StarBridgeVault.ts --network bsc --verify",
+    "ignition:opBNB": "cd contract-hardhat && npx hardhat ignition deploy ignition/modules/StarBridgeVault.ts --network opBNB --verify",
+    "ignition:bscTestnet": "cd contract-hardhat && npx hardhat ignition deploy ignition/modules/StarBridgeVault.ts --network bscTestnet --verify",
+    "ignition:opBNBTestnet": "cd contract-hardhat && npx hardhat ignition deploy ignition/modules/StarBridgeVault.ts --network opBNBTestnet --verify"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",

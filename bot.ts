@@ -4,10 +4,11 @@ import mongoose from "mongoose";
 import * as viem from "viem"
 import { sendToken } from "./blockchain/sendToken";
 import { Tokens } from "./lib/tokens";
-import { getVaultBalance } from "./blockchain/getVaultBalance";
+import { getTokenBalance } from "./blockchain/getBalance";
 import { type PaymentPayload, PaymentStatus, PaymentStep, type SessionData } from "./lib/types";
 import { PreCheckoutError } from "./lib/CustomErrors";
 import { Chain, CHAIN_CONFIG } from "./lib/chains";
+import { parseEther } from "viem";
 
 dotenv.config();
 
@@ -281,8 +282,9 @@ bot.on("pre_checkout_query", async(ctx) => {
             throw new PreCheckoutError("Stars amount mismatch");
         }
 
-        const vaultBalance = await getVaultBalance(payload.chain, payload.token);
-        if (vaultBalance < payload.amountInToken) {
+        const tokenBalance = await getTokenBalance(payload.chain, payload.token);
+
+        if (tokenBalance < parseEther(payload.amountInToken.toFixed(18))) {
             throw new PreCheckoutError("Insufficient vault balance");
         }
 
@@ -316,7 +318,7 @@ bot.on("message:successful_payment", async (ctx) => {
             payment.walletAddress as `0x${string}`,
             payment.chain as Chain,
             payment.token as Tokens,
-            payment.amountInToken
+            parseEther(payment.amountInToken.toFixed(18))
         );
 
         // Update payment status

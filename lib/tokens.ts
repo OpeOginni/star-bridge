@@ -5,7 +5,7 @@ export enum Tokens {
     USDC = "USDC"
 }
 
-export const TOKENS_MAP = {
+export const TOKENS_MAP: {[key: string]: {[key: string]: `0x${string}`}} = {
     [Tokens.USDT]: {
         [bsc.name] : "0x55d398326f99059ff775485246999027b3197955",
         [bscTestnet.name] : "0xc8cf9bac05202a0e6527f2745d8d0adef7a6a8fe",
