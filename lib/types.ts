@@ -1,11 +1,11 @@
 import type { ObjectId, Types } from "mongoose";
-import { Chain } from "./chains";
+import { SupportedChains } from "./chains";
 import { Tokens } from "./tokens";
 
 export interface PaymentPayload {
     chatId: number;
     walletAddress: string;
-    chain: Chain;
+    chain: SupportedChains;
     token: Tokens;
     stars: number;
     amountInToken: number;
@@ -28,13 +28,16 @@ export enum PaymentStatus {
 export interface SessionData {
     step: PaymentStep;
     walletAddress: string;
-    selectedChain: Chain | null;
+    selectedChain: SupportedChains | null;
     selectedToken: Tokens | null;
     currentPaymentId?: Types.ObjectId;
+    stars?: number;
+    amountInUSD?: number;
 }
 
 export enum PaymentStep {
     IDLE = "IDLE",
+    AWAITING_STARS_INPUT = "AWAITING_STARS_INPUT",
     CHAIN_SELECTION = "CHAIN_SELECTION",
     TOKEN_SELECTION = "TOKEN_SELECTION",
     BUNDLE_SELECTION = "BUNDLE_SELECTION",

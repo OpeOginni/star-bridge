@@ -7,7 +7,8 @@
     "ignition:bsc": "cd contract-hardhat && npx hardhat ignition deploy ignition/modules/StarBridgeVault.ts --network bsc --verify",
     "ignition:opBNB": "cd contract-hardhat && npx hardhat ignition deploy ignition/modules/StarBridgeVault.ts --network opBNB --verify",
     "ignition:bscTestnet": "cd contract-hardhat && npx hardhat ignition deploy ignition/modules/StarBridgeVault.ts --network bscTestnet --verify",
-    "ignition:opBNBTestnet": "cd contract-hardhat && npx hardhat ignition deploy ignition/modules/StarBridgeVault.ts --network opBNBTestnet --verify"
+    "ignition:opBNBTestnet": "cd contract-hardhat && npx hardhat ignition deploy ignition/modules/StarBridgeVault.ts --network opBNBTestnet",
+    "verify:opBNBTestnet": "cd contract-hardhat && npx hardhat verify --network opBNBTestnet --constructor-args verify/argument.js 0xD6e869136011388c5E863b859c1e407B7c4DC1e7"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
@@ -18,6 +19,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "@nomicfoundation/hardhat-verify": "^2.0.12",
     "@openzeppelin/contracts": "^5.1.0",
     "alchemy-sdk": "^3.5.0",
     "dotenv": "^16.4.5",

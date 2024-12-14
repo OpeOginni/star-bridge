@@ -3,8 +3,9 @@ import { TOKENS_MAP, type Tokens } from "../lib/tokens";
 import { ERC20_ABI } from "../lib/ABIs";
 import { VAULT_CONTRACTS } from "../lib/vaultContracts";
 import { ChainConfigurationError } from "../lib/CustomErrors";
+import type { SupportedChains } from "../lib/chains";
 
-export async function getTokenBalance(chain: string, token: Tokens) {
+export async function getTokenBalance(chain: SupportedChains, token: Tokens) {
     const {client, clientChain} = createClient_Internal(chain);
     
     const VaultContractAddress = VAULT_CONTRACTS[clientChain.name];
@@ -26,7 +27,7 @@ export async function getTokenBalance(chain: string, token: Tokens) {
     return balance;
 }
 
-export async function getNativeBalance(chain: string) {
+export async function getNativeBalance(chain: SupportedChains) {
     const {client, clientChain} = createClient_Internal(chain);
 
     const VaultContractAddress = VAULT_CONTRACTS[clientChain.name];

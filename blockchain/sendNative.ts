@@ -5,10 +5,11 @@ import { StarBridgeVaultABI } from "../lib/ABIs";
 import { getNativeBalance } from "./getBalance";
 import { VAULT_CONTRACTS } from "../lib/vaultContracts";
 import { ethers } from "hardhat";
+import type { SupportedChains } from "../lib/chains";
 
 dotenv.config();
 
-export async function sendNative(walletAddress: `0x${string}`, chain: string, amountInEther: bigint) {
+export async function sendNative(walletAddress: `0x${string}`, chain: SupportedChains, amountInEther: bigint) {
     const {walletClient, clientChain} = createClient_Internal(chain);
 
     const VaultContractAddress = VAULT_CONTRACTS[clientChain.name];
