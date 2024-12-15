@@ -9,11 +9,14 @@ export interface PaymentPayload {
     token: Tokens;
     stars: number;
     amountInToken: number;
-    amountInUSD: number;          // USD amount
-    creationTimestamp: number;       // For tracking when the Payment was initiated
-    completionTimestamp?: number;   // For tracking when the Payment was completed
+    amountInUSD: number;
+    operationalFee: number;
+    serviceFee: number;
+    totalFees: number;
+    creationTimestamp: number;
+    completionTimestamp?: number;
     status: PaymentStatus;
-    transactionId?: string;  // For tracking the blockchain transaction
+    transactionId?: string;
     telegramPaymentChargeId?: string;
 }
 

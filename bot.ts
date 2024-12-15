@@ -11,6 +11,7 @@ import { SupportedChains, CHAIN_CONFIG } from "./lib/chains";
 import { formatEther, parseEther } from "viem";
 import { InsufficientVaultBalanceError } from "./lib/CustomErrors";
 import { EXCHANGE_SUMMARY, INSUFFICIENT_VAULT_BALANCE, LOADING_STATE, SUCCESSFUL_EXCHANGE } from "./lib/links";
+import { calculateTransactionBreakdown, FEES } from "./lib/fees";
 
 dotenv.config();
 
@@ -28,6 +29,9 @@ const paymentsSchema = new mongoose.Schema({
     stars: { type: Number, required: true },
     amountInToken: { type: Number, required: true },
     amountInUSD: { type: Number, required: true },
+    operationalFee: { type: Number, required: true },
+    serviceFee: { type: Number, required: true },
+    totalFees: { type: Number, required: true },
     creationTimestamp: { type: Date, default: Date.now },
     completionTimestamp: { type: Date, required: false },
     status: { type: String, required: true },
@@ -171,7 +175,7 @@ bot.command("removewallet", async (ctx) => {
     return ctx.reply("✅ Wallet address has been removed.");
 });
 
-const STAR_TO_USD_RATE = 0.015; // 1 star = $0.015
+const STAR_TO_USD_RATE = FEES.baseRate; // $0.013 per star
 
 // Buy command
 bot.command("buy", async (ctx) => {
@@ -185,36 +189,57 @@ bot.command("buy", async (ctx) => {
     }
 
     const starsArg = ctx.match;
-    const stars = parseInt(starsArg);
-
     if (!starsArg) {
         return ctx.reply(
             "Please specify the number of stars:\n" +
             "/buy <number_of_stars>\n\n" +
-            `Example: /buy 50 )`
+            `Example: /buy ${Math.ceil(FEES.minimumTx / FEES.baseRate)} (minimum amount)`
         );
     }
 
+    const stars = parseInt(starsArg);
     if (isNaN(stars) || stars <= 0) {
         return ctx.reply("Please enter a valid number of stars.");
     }
 
-    const amountInUSD = stars * STAR_TO_USD_RATE;
-    ctx.session.walletAddress = user.walletAddress;
-    ctx.session.stars = stars;
-    ctx.session.amountInUSD = amountInUSD;
+    try {
+        const breakdown = calculateTransactionBreakdown(stars);
 
-    // Continue with chain selection
-    const keyboard = new InlineKeyboard();
-    Object.entries(SUPPORTED_CHAINS).forEach(([key, name]) => {
-        keyboard.text(name, `chain_${key}`).row();
-    });
+        ctx.session.walletAddress = user.walletAddress;
+        ctx.session.stars = stars;
+        ctx.session.amountInUSD = breakdown.netAmount; // Store net amount after fees
 
-    await ctx.reply(
-        `Converting ${stars} ⭐ (=$${amountInUSD.toFixed(3)})\n` +
-        "Select which blockchain you'd like to receive your crypto on:", 
-        { reply_markup: keyboard }
-    );
+        // Create chain selection keyboard
+        const keyboard = new InlineKeyboard();
+        Object.entries(SUPPORTED_CHAINS).forEach(([key, name]) => {
+            keyboard.text(name, `chain_${key}`).row();
+        });
+
+        await ctx.reply(
+            `💫 *Converting ${stars} Stars*\n\n` +
+            `Base Amount: \\$${breakdown.originalAmount.toFixed(2)}\n` +
+            `Fees Breakdown:\n` +
+            `• Operational Fee: \\$${breakdown.operationalFee.toFixed(2)}\n` +
+            `• Service Fee: \\$${breakdown.percentageFee.toFixed(2)} ` +
+            `\\(${breakdown.originalAmount >= 500 ? '1' : '2'}%\\)\n\n` +
+            `*Net Amount: \\$${breakdown.netAmount.toFixed(2)}*\n\n` +
+            `Select blockchain network:`,
+            { 
+                reply_markup: keyboard,
+                parse_mode: "MarkdownV2" 
+            }
+        );
+
+    } catch (error) {
+        console.error('Fee calculation error:', error);
+        if (error instanceof Error && error.message.includes('Minimum transaction')) {
+            return ctx.reply(
+                `⚠️ Minimum transaction amount is $${FEES.minimumTx}\n` +
+                `This requires at least ${Math.ceil(FEES.minimumTx / FEES.baseRate)} stars`
+            );
+        }
+        return ctx.reply("An error occurred while processing your request.");
+    }
 });
 
 // Handle chain selection
@@ -236,15 +261,21 @@ bot.callbackQuery(/^token_(.+)$/, async (ctx) => {
     const token = ctx.match[1];
     ctx.session.selectedToken = token as Tokens;
 
-    // Create payment payload directly from session data
+    const stars = ctx.session.stars!;
+    const breakdown = calculateTransactionBreakdown(stars);
+
+    // Create payment payload
     const payload: PaymentPayload = {
         chatId: ctx.chat!.id,
         walletAddress: ctx.session.walletAddress,
         chain: ctx.session.selectedChain!,
         token: ctx.session.selectedToken!,
-        stars: ctx.session.stars!,
-        amountInToken: ctx.session.amountInUSD!, // This will be the same as USD amount
-        amountInUSD: ctx.session.amountInUSD!,
+        stars: stars,
+        amountInToken: breakdown.netAmount,
+        amountInUSD: breakdown.netAmount,
+        operationalFee: breakdown.operationalFee,
+        serviceFee: breakdown.percentageFee,
+        totalFees: breakdown.totalFees,
         creationTimestamp: Date.now(),
         status: PaymentStatus.PENDING,
         telegramPaymentChargeId: '',
@@ -265,9 +296,6 @@ bot.callbackQuery(/^token_(.+)$/, async (ctx) => {
             );
         }
 
-        // Create payment record in DB
-        // const payment = await Payment.create(payload);
-
         await ctx.editMessageMedia({
             type: "animation",
             media: EXCHANGE_SUMMARY,
@@ -284,15 +312,14 @@ bot.callbackQuery(/^token_(.+)$/, async (ctx) => {
             parse_mode: "MarkdownV2"
         });
 
-        // ctx.session.currentPaymentId = payment._id;
         ctx.session.step = PaymentStep.PAYMENT_PENDING;
 
         await bot.api.sendInvoice(
             payload.chatId,
             `${payload.token} Payment`,
             `Payment of $${payload.amountInUSD.toFixed(3)} ${payload.token} on ${payload.chain}`,
-            "{}",
-            "XTR",
+            JSON.stringify(payload),
+            process.env.PROVIDER_TOKEN!,
             [{label: "Confirm", amount: payload.stars}]
         );
 
@@ -390,7 +417,8 @@ bot.on("message:successful_payment", async (ctx) => {
         await Payment.findByIdAndUpdate(payment._id, {
             status: PaymentStatus.COMPLETED,
             transactionId: tx,
-            telegramPaymentChargeId: ctx.message.successful_payment.provider_payment_charge_id
+            telegramPaymentChargeId: ctx.message.successful_payment.provider_payment_charge_id,
+            completionTimestamp: new Date()
         });
 
         await ctx.api.editMessageMedia(loadingState.chat.id, loadingState.message_id, {
@@ -475,115 +503,135 @@ bot.command("simulate", async (ctx) => {
     }
 
     const starsArg = ctx.match;
-    const stars = parseInt(starsArg);
-
     if (!starsArg) {
         return ctx.reply(
             "Please specify the number of stars:\n" +
             "/simulate <number_of_stars>\n\n" +
-            `Example: /simulate 50 )`
+            `Example: /simulate ${Math.ceil(FEES.minimumTx / FEES.baseRate)} (minimum amount)`
         );
     }
 
+    const stars = parseInt(starsArg);
     if (isNaN(stars) || stars <= 0) {
         return ctx.reply("Please enter a valid number of stars.");
     }
 
-    const amountInUSD = stars * STAR_TO_USD_RATE;
-
-    // Simulate a payment with 50 stars
-    const simulatedPayload: PaymentPayload = {
-        chatId: ctx.chat.id,
-        walletAddress: user.walletAddress,
-        chain: SupportedChains.OPBNB,
-        token: Tokens.USDT,
-        stars: stars,
-        amountInToken: amountInUSD,
-        amountInUSD: amountInUSD,
-        creationTimestamp: Date.now(),
-        status: PaymentStatus.PENDING,
-        telegramPaymentChargeId: 'test-payment-' + Date.now(),
-        transactionId: ''
-    };
-
-    // Create payment record in DB
-    const payment = await Payment.create(simulatedPayload);
-
-    await ctx.reply(
-        "🧪 *TEST MODE: Simulating payment flow*\n\n" +
-        `Processing test payment of ${simulatedPayload.stars} stars\\.\\.\\.`,
-        { parse_mode: "MarkdownV2" }
-    );
-
-    // Simulate processing delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    const loadingState = await ctx.replyWithAnimation(LOADING_STATE);
-
     try {
+        const breakdown = calculateTransactionBreakdown(stars);
 
-        // Check vault balance first
-        const vaultBalance = await getTokenBalance(simulatedPayload.chain, simulatedPayload.token);
-        const requiredAmount = parseEther(simulatedPayload.amountInToken.toFixed(2));
+        // Simulate a payment
+        const simulatedPayload: PaymentPayload = {
+            chatId: ctx.chat.id,
+            walletAddress: user.walletAddress,
+            chain: SupportedChains.OPBNB,
+            token: Tokens.USDT,
+            stars: stars,
+            amountInToken: breakdown.netAmount,
+            amountInUSD: breakdown.netAmount,
+            operationalFee: breakdown.operationalFee,
+            serviceFee: breakdown.percentageFee,
+            totalFees: breakdown.totalFees,
+            creationTimestamp: Date.now(),
+            status: PaymentStatus.PENDING,
+            telegramPaymentChargeId: 'test-payment-' + Date.now(),
+            transactionId: ''
+        };
 
-
-        if (vaultBalance < requiredAmount) {
-            throw new InsufficientVaultBalanceError(
-                simulatedPayload.token,
-                Number(formatEther(requiredAmount)),
-                Number(formatEther(vaultBalance)),
-                simulatedPayload.chain
-            );
-        }
-
-        // Process the token transfer
-        const tx = await sendToken(
-            simulatedPayload.walletAddress as `0x${string}`,
-            simulatedPayload.chain,
-            simulatedPayload.token,
-            simulatedPayload.amountInToken
-        );
-
-        // Update payment status
-        await Payment.findByIdAndUpdate(payment._id, {
-            status: PaymentStatus.COMPLETED,
-            transactionId: tx,
-        });
-
-        await ctx.api.editMessageMedia(loadingState.chat.id, loadingState.message_id, {
-            type: "animation",
-            media: SUCCESSFUL_EXCHANGE
-        });
+        // Create payment record in DB
+        const payment = await Payment.create(simulatedPayload);
 
         await ctx.reply(
-            `✅ *Test Payment Successful\\!*\n\n` +
-            `Transaction Hash: \`${tx.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}\`\n\n` +
-            `${CHAIN_CONFIG[simulatedPayload.chain].explorer.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}/tx/${tx.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}`,
+            "🧪 *TEST MODE: Simulating payment flow*\n\n" +
+            `Converting ${stars} Stars\n\n` +
+            `Base Amount: \\$${breakdown.originalAmount.toFixed(2)}\n` +
+            `Fees Breakdown:\n` +
+            `• Operational Fee: \\$${breakdown.operationalFee.toFixed(2)}\n` +
+            `• Service Fee: \\$${breakdown.percentageFee.toFixed(2)} ` +
+            `\\(${breakdown.originalAmount >= 500 ? '1' : '2'}%\\)\n\n` +
+            `*Net Amount: \\$${breakdown.netAmount.toFixed(2)}*`,
             { parse_mode: "MarkdownV2" }
         );
 
-    } catch (error) {
-        console.error('Test payment processing error:', error);
-        await ctx.api.deleteMessage(ctx.chat.id, loadingState.message_id);
+        const loadingState = await ctx.replyWithAnimation(LOADING_STATE);
 
-        let errorMessage = "⚠️ *Test Payment Failed*\n\n";
-        
-        if (error instanceof InsufficientVaultBalanceError) {
-            errorMessage += `❌ *Insufficient Vault Balance*\n\n` +
-                `Chain: ${error.chain.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}\n` +
-                `Token: ${error.token.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}\n` +
-                `Required: ${error.required.toString().replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')} ${error.token}\n` +
-                `Available: ${error.available.toString().replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')} ${error.token}`;
-        } else {
-            errorMessage += "There was an error processing your test payment\\.";
+        // Simulate processing delay
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        try {
+            // Check vault balance first
+            const vaultBalance = await getTokenBalance(simulatedPayload.chain, simulatedPayload.token);
+            const requiredAmount = parseEther(simulatedPayload.amountInToken.toFixed(2));
+
+            if (vaultBalance < requiredAmount) {
+                throw new InsufficientVaultBalanceError(
+                    simulatedPayload.token,
+                    Number(formatEther(requiredAmount)),
+                    Number(formatEther(vaultBalance)),
+                    simulatedPayload.chain
+                );
+            }
+
+            // Process the token transfer
+            const tx = await sendToken(
+                simulatedPayload.walletAddress as `0x${string}`,
+                simulatedPayload.chain,
+                simulatedPayload.token,
+                simulatedPayload.amountInToken
+            );
+
+            // Update payment status
+            await Payment.findByIdAndUpdate(payment._id, {
+                status: PaymentStatus.COMPLETED,
+                transactionId: tx,
+                completionTimestamp: new Date()
+            });
+
+            await ctx.api.editMessageMedia(loadingState.chat.id, loadingState.message_id, {
+                type: "animation",
+                media: SUCCESSFUL_EXCHANGE
+            });
+
+            await ctx.reply(
+                `✅ *Test Payment Successful\\!*\n\n` +
+                `Transaction Hash: \`${tx.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}\`\n\n` +
+                `Profit earned: \\$${(breakdown.totalFees).toFixed(2)}\n\n` +
+                `${CHAIN_CONFIG[simulatedPayload.chain].explorer.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}/tx/${tx.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}`,
+                { parse_mode: "MarkdownV2" }
+            );
+
+        } catch (error) {
+            console.error('Test payment processing error:', error);
+            await ctx.api.deleteMessage(ctx.chat.id, loadingState.message_id);
+
+            let errorMessage = "⚠️ *Test Payment Failed*\n\n";
+            
+            if (error instanceof InsufficientVaultBalanceError) {
+                errorMessage += `❌ *Insufficient Vault Balance*\n\n` +
+                    `Chain: ${error.chain.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}\n` +
+                    `Token: ${error.token.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}\n` +
+                    `Required: ${error.required.toString().replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')} ${error.token}\n` +
+                    `Available: ${error.available.toString().replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')} ${error.token}`;
+            } else {
+                errorMessage += "There was an error processing your test payment\\.";
+            }
+            
+            await ctx.reply(errorMessage, { parse_mode: "MarkdownV2" });
+            
+            // Update payment status to failed
+            await Payment.findByIdAndUpdate(payment._id, {
+                status: PaymentStatus.FAILED,
+                completionTimestamp: new Date()
+            });
         }
-        
-        await ctx.reply(errorMessage, { parse_mode: "MarkdownV2" });
-        
-        // Update payment status to failed
-        await Payment.findByIdAndUpdate(payment._id, {
-            status: PaymentStatus.FAILED
-        });
+    } catch (error) {
+        console.error('Fee calculation error:', error);
+        if (error instanceof Error && error.message.includes('Minimum transaction')) {
+            return ctx.reply(
+                `⚠️ Minimum transaction amount is $${FEES.minimumTx}\n` +
+                `This requires at least ${Math.ceil(FEES.minimumTx / FEES.baseRate)} stars`
+            );
+        }
+        return ctx.reply("An error occurred while processing your request.");
     }
 });
 
