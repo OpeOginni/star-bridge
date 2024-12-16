@@ -29,3 +29,9 @@ export class ChainConfigurationError extends Error {
     }
 }
 
+export class PaymentAlreadyCompletedError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'PaymentAlreadyCompletedError';
+    }
+}

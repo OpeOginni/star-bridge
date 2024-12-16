@@ -6,12 +6,13 @@ import { sendToken } from "./blockchain/sendToken";
 import { Tokens } from "./lib/tokens";
 import { getTokenBalance } from "./blockchain/getBalance";
 import { type PaymentPayload, PaymentStatus, PaymentStep, type SessionData } from "./lib/types";
-import { PreCheckoutError } from "./lib/CustomErrors";
+import { PaymentAlreadyCompletedError, PreCheckoutError } from "./lib/CustomErrors";
 import { SupportedChains, CHAIN_CONFIG } from "./lib/chains";
 import { formatEther, parseEther } from "viem";
 import { InsufficientVaultBalanceError } from "./lib/CustomErrors";
-import { EXCHANGE_SUMMARY, INSUFFICIENT_VAULT_BALANCE, LOADING_STATE, SUCCESSFUL_EXCHANGE } from "./lib/links";
+import { EXCHANGE_SUMMARY, INSUFFICIENT_VAULT_BALANCE, LOADING_STATE, SUCCESSFUL_EXCHANGE, WINDOWS_ERROR } from "./lib/links";
 import { calculateTransactionBreakdown, FEES } from "./lib/fees";
+import { escapeMarkdown, formatNumber, formatAddress } from "./lib/helper";
 
 dotenv.config();
 
@@ -46,6 +47,7 @@ const Payment = mongoose.model('Payment', paymentsSchema);
 type MyContext = Context & SessionFlavor<SessionData>;
 
 const bot = new Bot<MyContext>(process.env.BOT_TOKEN!);
+const TRANSACTIONS_PER_PAGE = 5;
 
 function initial(): SessionData {
     return {
@@ -124,7 +126,7 @@ bot.command("wallet", async (ctx) => {
     }
 
     return ctx.reply(
-        `Your current wallet address is: \`${user.walletAddress}\`\n\n` +
+        `Your current wallet address is: ${formatAddress(user.walletAddress)}\n\n` +
         "Use /addwallet to update it or /removewallet to remove it",
         { parse_mode: "MarkdownV2" }
     );
@@ -154,7 +156,7 @@ bot.command("addwallet", async (ctx) => {
     );
 
     return ctx.reply(
-        `✅ Wallet address ${user?.walletAddress ? 'updated' : 'set'} to: \`${address}\``,
+        `✅ Wallet address ${user?.walletAddress ? 'updated' : 'set'} to: ${formatAddress(address)}`,
         { parse_mode: "MarkdownV2" }
     );
 });
@@ -217,12 +219,12 @@ bot.command("buy", async (ctx) => {
 
         await ctx.reply(
             `💫 *Converting ${stars} Stars*\n\n` +
-            `Base Amount: \\$${breakdown.originalAmount.toFixed(2)}\n` +
+            `Base Amount: \\$${formatNumber(breakdown.originalAmount)}\n` +
             `Fees Breakdown:\n` +
-            `• Operational Fee: \\$${breakdown.operationalFee.toFixed(2)}\n` +
-            `• Service Fee: \\$${breakdown.percentageFee.toFixed(2)} ` +
-            `\\(${breakdown.originalAmount >= 500 ? '1' : '2'}%\\)\n\n` +
-            `*Net Amount: \\$${breakdown.netAmount.toFixed(2)}*\n\n` +
+            `• Operational Fee: \\$${formatNumber(breakdown.operationalFee)}\n` +
+            `• Service Fee: \\$${formatNumber(breakdown.percentageFee)} ` +
+            `\\(${breakdown.originalAmount >= 500 ? '1' : '2'}\\%\\)\n\n` +
+            `*Net Amount: \\$${formatNumber(breakdown.netAmount)}*\n\n` +
             `Select blockchain network:`,
             { 
                 reply_markup: keyboard,
@@ -301,25 +303,37 @@ bot.callbackQuery(/^token_(.+)$/, async (ctx) => {
             media: EXCHANGE_SUMMARY,
             caption: 
                 `*🌉 Star Bridge Exchange Summary*\n\n` +
-                `*Network:* _${SUPPORTED_CHAINS[payload.chain]}_\n` +
-                `*Destination:* _${payload.walletAddress.replace(/[._-]/g, '\\$&')}_\n\n` +
-                `*Token:* _${payload.token}_\n` +
-                `*Amount:* _${payload.amountInToken.toFixed(2).replace('.', '\\.')} ${payload.token}_\n` +
+                `*Network:* _${escapeMarkdown(SUPPORTED_CHAINS[payload.chain])}_\n` +
+                `*Destination:* ${formatAddress(payload.walletAddress)}\n\n` +
+                `*Token:* _${escapeMarkdown(payload.token)}_\n` +
+                `*Amount:* _${formatNumber(payload.amountInToken)} ${escapeMarkdown(payload.token)}_\n` +
                 `*Stars:* _${payload.stars}_ ⭐\n` +
-                `*USD Value:* _\\$${payload.amountInUSD.toFixed(2).replace('.', '\\.')}_\n` +
+                `*USD Value:* _\\$${formatNumber(payload.amountInUSD)}_\n` +
                 `*Status:* _Awaiting Payment_\n` +
                 `To bridge your tokens, please send *${payload.stars} stars*`,
             parse_mode: "MarkdownV2"
         });
 
         ctx.session.step = PaymentStep.PAYMENT_PENDING;
+        
+        // First, create and store the full payment in DB
+        const fullPayment = await Payment.create(payload);
+
+        // Create a minimal payload for the invoice
+        const minimalPayload = {
+            paymentId: fullPayment._id,
+            stars: payload.stars,
+            chain: payload.chain,
+            token: payload.token,
+            amountInToken: payload.amountInToken
+        };
 
         await bot.api.sendInvoice(
             payload.chatId,
             `${payload.token} Payment`,
             `Payment of $${payload.amountInUSD.toFixed(3)} ${payload.token} on ${payload.chain}`,
-            JSON.stringify(payload),
-            process.env.PROVIDER_TOKEN!,
+            JSON.stringify(minimalPayload),  // Minimal payload with only necessary data
+            "XTR",
             [{label: "Confirm", amount: payload.stars}]
         );
 
@@ -332,10 +346,10 @@ bot.callbackQuery(/^token_(.+)$/, async (ctx) => {
         if (error instanceof InsufficientVaultBalanceError) {
             animation = INSUFFICIENT_VAULT_BALANCE
             errorMessage += `❌ *Insufficient Vault Balance*\n\n` +
-                `Chain: ${error.chain.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}\n` +
-                `Token: ${error.token.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}\n` +
-                `Required: ${error.required.toString().replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')} ${error.token}\n` +
-                `Available: ${error.available.toString().replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')} ${error.token}`;
+                `Chain: ${escapeMarkdown(error.chain)}\n` +
+                `Token: ${escapeMarkdown(error.token)}\n` +
+                `Required: ${formatNumber(error.required)} ${escapeMarkdown(error.token)}\n` +
+                `Available: ${formatNumber(error.available)} ${escapeMarkdown(error.token)}`;
         } else {
             errorMessage += "There was an error initiating your payment\\.";
         }
@@ -347,32 +361,47 @@ bot.callbackQuery(/^token_(.+)$/, async (ctx) => {
                 parse_mode: "MarkdownV2"
             })
         } else {
-            await ctx.editMessageText(errorMessage, { parse_mode: "MarkdownV2" });
+            await ctx.editMessageMedia({
+                type: "animation",
+                media: WINDOWS_ERROR,
+                caption: errorMessage,
+                parse_mode: "MarkdownV2"
+            });
         }
     }
 });
 
 bot.on("pre_checkout_query", async(ctx) => {
     try {
-        const payload = JSON.parse(ctx.preCheckoutQuery.invoice_payload) as PaymentPayload;
+        const minimalPayload = JSON.parse(ctx.preCheckoutQuery.invoice_payload);
 
-        if (payload.stars !== ctx.preCheckoutQuery.total_amount) {
+        if (minimalPayload.stars !== ctx.preCheckoutQuery.total_amount) {
             throw new PreCheckoutError("Stars amount mismatch");
         }
 
-        const vaultBalance = await getTokenBalance(payload.chain, payload.token);
-        const requiredAmount = parseEther(payload.amountInToken.toFixed(2));
+        const vaultBalance = await getTokenBalance(minimalPayload.chain, minimalPayload.token);
+        const requiredAmount = parseEther(minimalPayload.amountInToken.toFixed(2));
 
         if (vaultBalance < requiredAmount) {
             throw new InsufficientVaultBalanceError(
-                payload.token,
+                minimalPayload.token,
                 Number(requiredAmount),
                 Number(vaultBalance),
-                payload.chain
+                minimalPayload.chain
             );
         }
 
-        payload.status = PaymentStatus.PROCESSING;
+        const payment = await Payment.findById(minimalPayload.paymentId);
+
+        if(payment?.status === PaymentStatus.COMPLETED) {
+            throw new PaymentAlreadyCompletedError(`Payment already completed ~ Refunding stars`);
+        }
+
+        // Update payment status using the stored ID
+        await Payment.findByIdAndUpdate(minimalPayload.paymentId, {
+            status: PaymentStatus.PROCESSING
+        });
+
         await ctx.answerPreCheckoutQuery(true);
 
     } catch (error) {
@@ -385,6 +414,8 @@ bot.on("pre_checkout_query", async(ctx) => {
             );
         } else if (error instanceof PreCheckoutError) {
             await ctx.answerPreCheckoutQuery(false, error.message);
+        } else if (error instanceof PaymentAlreadyCompletedError) {
+            await ctx.answerPreCheckoutQuery(false, error.message);
         } else {
             await ctx.answerPreCheckoutQuery(false, "An error occurred");
         }
@@ -392,15 +423,24 @@ bot.on("pre_checkout_query", async(ctx) => {
 });
 
 // Update successful payment handler
-bot.on("message:successful_payment", async (ctx) => {
-    if (!ctx.message?.successful_payment || !ctx.from || !ctx.session.currentPaymentId) {
+bot.on(":successful_payment", async (ctx) => {
+    console.log("Successful payment received");
+
+    if (!ctx.message?.successful_payment.invoice_payload || !ctx.from.id) {
         return;
     }
+
+    const payload = JSON.parse(ctx.message.successful_payment.invoice_payload);
+    const paymentId = payload.paymentId;
+
+    if (!paymentId) {
+        return ctx.reply("⚠️ Payment ID not found");
+    }
+
     const loadingState = await ctx.replyWithAnimation(LOADING_STATE);
 
     try {
-
-        const payment = await Payment.findById(ctx.session.currentPaymentId);
+        const payment = await Payment.findById(paymentId);
         if (!payment) {
             throw new Error('Payment not found');
         }
@@ -427,9 +467,9 @@ bot.on("message:successful_payment", async (ctx) => {
         });
 
         await ctx.reply(
-            `✅ *Test Payment Successful\\!*\n\n` +
-            `Transaction Hash: \`${tx.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}\`\n\n` +
-            `${CHAIN_CONFIG[payment.chain as SupportedChains].explorer.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}/tx/${tx.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}`,
+            `✅ *Payment Successful\\!*\n\n` +
+            `Transaction Hash: ${formatAddress(tx)}\n\n` +
+            `${escapeMarkdown(CHAIN_CONFIG[payment.chain as SupportedChains].explorer)}/tx/${escapeMarkdown(tx)}`,
             { parse_mode: "MarkdownV2" }
         );
 
@@ -440,7 +480,7 @@ bot.on("message:successful_payment", async (ctx) => {
         await ctx.reply("⚠️ There was an error processing your payment. Our team has been notified.");
         
         // Update payment status to failed
-        await Payment.findByIdAndUpdate(ctx.session.currentPaymentId, {
+        await Payment.findByIdAndUpdate(paymentId, {
             status: PaymentStatus.FAILED
         });
         
@@ -451,26 +491,6 @@ bot.on("message:successful_payment", async (ctx) => {
         ctx.session.step = PaymentStep.IDLE;
         ctx.session.currentPaymentId = undefined;
     }
-});
-
-// History command
-bot.command("history", async (ctx) => {
-    const payments = await Payment.find({ chatId: ctx.chat.id });
-
-    if (!payments?.length) {
-        return ctx.reply("You haven't made any Payments yet.");
-    }
-
-    const history = payments
-        .map((Payment, i) =>
-            `${i + 1}. ${Payment.amountInToken} ${Payment.token} on ${Payment.chain}\n` +
-            `   Stars: ${Payment.stars} ⭐\n` +
-            `   Status: ${Payment.status}\n` +
-            `   Date: ${Payment.completionTimestamp?.toLocaleDateString()}`
-        )
-        .join('\n\n');
-
-    await ctx.reply(`Payment History:\n\n${history}`);
 });
 
 // Help command
@@ -489,6 +509,88 @@ bot.command("help", async (ctx) => {
         "3. Send Stars to receive crypto\n\n" +
         "Need help? Contact @StarBridgeSupport"
     );
+});
+
+// History command
+bot.command("history", async (ctx) => {
+    const page = 1; // Start with first page
+    const payments = await Payment.find({ chatId: ctx.chat.id })
+        .sort({ creationTimestamp: -1 }) // Sort by newest first
+        .skip((page - 1) * TRANSACTIONS_PER_PAGE)
+        .limit(TRANSACTIONS_PER_PAGE);
+
+    const totalPayments = await Payment.countDocuments({ chatId: ctx.chat.id });
+    const totalPages = Math.ceil(totalPayments / TRANSACTIONS_PER_PAGE);
+
+    if (!payments?.length) {
+        return ctx.reply("You haven't made any Payments yet.");
+    }
+
+    const history = payments
+        .map((payment, i) =>
+            `${(page - 1) * TRANSACTIONS_PER_PAGE + i + 1}. ${payment.amountInToken} ${payment.token} on ${payment.chain}\n` +
+            `   Stars: ${payment.stars} ⭐\n` +
+            `   Status: ${payment.status}\n` +
+            `   Date: ${payment.completionTimestamp?.toLocaleDateString()}`
+        )
+        .join('\n\n');
+
+    // Create pagination keyboard
+    const keyboard = new InlineKeyboard();
+    
+    // Add navigation buttons
+    if (totalPages > 1) {
+        if (page > 1) keyboard.text('⬅️ Previous', `history_${page - 1}`);
+        keyboard.text(`${page}/${totalPages}`, 'current_page');
+        if (page < totalPages) keyboard.text('Next ➡️', `history_${page + 1}`);
+    }
+
+    await ctx.reply(
+        `Payment History (Page ${page}/${totalPages}):\n\n${history}`,
+        { reply_markup: keyboard }
+    );
+});
+
+// Handle pagination callbacks
+bot.callbackQuery(/^history_(\d+)$/, async (ctx) => {
+    const page = parseInt(ctx.match[1]);
+    
+    const payments = await Payment.find({ chatId: ctx.chat!.id })
+        .sort({ creationTimestamp: -1 })
+        .skip((page - 1) * TRANSACTIONS_PER_PAGE)
+        .limit(TRANSACTIONS_PER_PAGE);
+
+    const totalPayments = await Payment.countDocuments({ chatId: ctx.chat!.id });
+    const totalPages = Math.ceil(totalPayments / TRANSACTIONS_PER_PAGE);
+
+    const history = payments
+        .map((payment, i) =>
+            `${(page - 1) * TRANSACTIONS_PER_PAGE + i + 1}. ${payment.amountInToken} ${payment.token} on ${payment.chain}\n` +
+            `   Stars: ${payment.stars} ⭐\n` +
+            `   Status: ${payment.status}\n` +
+            `   Date: ${payment.completionTimestamp?.toLocaleDateString()}`
+        )
+        .join('\n\n');
+
+    // Create pagination keyboard
+    const keyboard = new InlineKeyboard();
+    
+    // Add navigation buttons
+    if (totalPages > 1) {
+        if (page > 1) keyboard.text('⬅️ Previous', `history_${page - 1}`);
+        keyboard.text(`${page}/${totalPages}`, 'current_page');
+        if (page < totalPages) keyboard.text('Next ➡️', `history_${page + 1}`);
+    }
+
+    await ctx.editMessageText(
+        `Payment History (Page ${page}/${totalPages}):\n\n${history}`,
+        { reply_markup: keyboard }
+    );
+});
+
+// Handle current page button (do nothing)
+bot.callbackQuery('current_page', async (ctx) => {
+    await ctx.answerCallbackQuery();
 });
 
 // Add this new test command handler
@@ -543,12 +645,12 @@ bot.command("simulate", async (ctx) => {
         await ctx.reply(
             "🧪 *TEST MODE: Simulating payment flow*\n\n" +
             `Converting ${stars} Stars\n\n` +
-            `Base Amount: \\$${breakdown.originalAmount.toFixed(2)}\n` +
+            `Base Amount: \\$${formatNumber(breakdown.originalAmount)}\n` +
             `Fees Breakdown:\n` +
-            `• Operational Fee: \\$${breakdown.operationalFee.toFixed(2)}\n` +
-            `• Service Fee: \\$${breakdown.percentageFee.toFixed(2)} ` +
-            `\\(${breakdown.originalAmount >= 500 ? '1' : '2'}%\\)\n\n` +
-            `*Net Amount: \\$${breakdown.netAmount.toFixed(2)}*`,
+            `• Operational Fee: \\$${formatNumber(breakdown.operationalFee)}\n` +
+            `• Service Fee: \\$${formatNumber(breakdown.percentageFee)} ` +
+            `\\(${breakdown.originalAmount >= 500 ? '1' : '2'}\\%\\)\n\n` +
+            `*Net Amount: \\$${formatNumber(breakdown.netAmount)}*`,
             { parse_mode: "MarkdownV2" }
         );
 
@@ -593,9 +695,9 @@ bot.command("simulate", async (ctx) => {
 
             await ctx.reply(
                 `✅ *Test Payment Successful\\!*\n\n` +
-                `Transaction Hash: \`${tx.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}\`\n\n` +
-                `Profit earned: \\$${(breakdown.totalFees).toFixed(2)}\n\n` +
-                `${CHAIN_CONFIG[simulatedPayload.chain].explorer.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}/tx/${tx.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}`,
+                `Transaction Hash: ${formatAddress(tx)}\n\n` +
+                `Profit earned: \\$${formatNumber(breakdown.totalFees)}\n\n` +
+                `${escapeMarkdown(CHAIN_CONFIG[simulatedPayload.chain].explorer)}/tx/${escapeMarkdown(tx)}`,
                 { parse_mode: "MarkdownV2" }
             );
 
@@ -607,10 +709,10 @@ bot.command("simulate", async (ctx) => {
             
             if (error instanceof InsufficientVaultBalanceError) {
                 errorMessage += `❌ *Insufficient Vault Balance*\n\n` +
-                    `Chain: ${error.chain.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}\n` +
-                    `Token: ${error.token.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')}\n` +
-                    `Required: ${error.required.toString().replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')} ${error.token}\n` +
-                    `Available: ${error.available.toString().replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')} ${error.token}`;
+                    `Chain: ${escapeMarkdown(error.chain)}\n` +
+                    `Token: ${escapeMarkdown(error.token)}\n` +
+                    `Required: ${formatNumber(error.required)} ${escapeMarkdown(error.token)}\n` +
+                    `Available: ${formatNumber(error.available)} ${escapeMarkdown(error.token)}`;
             } else {
                 errorMessage += "There was an error processing your test payment\\.";
             }

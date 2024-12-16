@@ -38,6 +38,6 @@ const main = async (amount: number, token: Tokens | "native") => {
     }
 }
 
-main(5, Tokens.USDT);
+main(5.09, Tokens.USDT);
 
 // npx hardhat run ./scripts/deposit.ts --network bscTestnet
