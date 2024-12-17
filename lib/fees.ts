@@ -15,7 +15,7 @@ export interface FeeStructure {
 // };
 
 export const FEES: FeeStructure = {
-    baseRate: 0.01,      // Keep the base rate the same
+    baseRate: 0.013,      // Keep the base rate the same
     operationalFee: 0,   // No operational fee
     smallTxFee: 0,       // No percentage fee for small transactions
     largeTxFee: 0,       // No percentage fee for large transactions
