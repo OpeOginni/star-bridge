@@ -9,7 +9,7 @@ Convert Telegram Stars into crypto tokens instantly! Star Bridge is a Telegram b
 ### Core Functionality
 - **Multi-Chain Support**: Currently supports BSC and opBNB networks
 - **Multiple Tokens**: Support for USDT and USDC (varies by chain)
-- **Automatic Rate**: 1 Star = $0.015 USD
+- **Automatic Rate**: 1 Star = $0.013 USD
 - **Real-time Conversion**: Instant token transfers upon successful star payment
 - **Vault Balance Checking**: Prevents failed transactions by checking vault balance before processing
 
