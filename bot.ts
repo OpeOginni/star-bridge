@@ -76,13 +76,6 @@ const SUPPORTED_TOKENS: {[key: string]: Tokens[]} = {
     [SupportedChains.OPBNB]: [Tokens.USDT]
 };
 
-// Bundle options (amount in USD)
-const BUNDLES = [
-    { amount: 0.015, stars: 1 },
-    { amount: 0.75, stars: 50 },
-    { amount: 3.75, stars: 250 },
-    { amount: 7.5, stars: 500 }
-];
 
 // Set bot commands
 await bot.api.setMyCommands([
@@ -93,7 +86,7 @@ await bot.api.setMyCommands([
     { command: "wallet", description: "View your wallet address" },
     { command: "addwallet", description: "Add or update wallet address" },
     { command: "removewallet", description: "Remove your wallet address" },
-    { command: "simulate", description: "Test the payment flow (simulation)" }
+    // { command: "simulate", description: "Test the payment flow (simulation)" }
 ]);
 
 // Start command
@@ -108,14 +101,14 @@ bot.command("start", async (ctx) => {
         "All purchases will be processed on test networks\\." : "";
 
     await ctx.replyWithPhoto(new InputFile("./assets/star-bridge-bright.webp"), {
-        caption: "Welcome to Star Bridge! ⭐\n\n" +
-        "Convert your Telegram Stars into crypto instantly!" +
+        caption: "Welcome to Star Bridge\\! ⭐\n\n" +  // Escaped the !
+        "Convert your Telegram Stars into crypto instantly\\!" +  // Escaped the !
         testnetWarning + "\n\n" +
         "Quick Start:\n" +
-        "• /buy - Convert Stars to crypto\n" +
-        "• /wallet - Set up your crypto wallet\n" +
-        "• /history - View your conversion history\n\n" +
-        "Need help? Use /help for more information.",
+        "• /buy \\- Convert Stars to crypto\n" +  // Escaped the -
+        "• /wallet \\- Set up your crypto wallet\n" +  // Escaped the -
+        "• /history \\- View your conversion history\n\n" +  // Escaped the -
+        "Need help\\? Use /help for more information\\.",  // Escaped the ?
         parse_mode: "MarkdownV2"
     });
 });
@@ -182,8 +175,6 @@ bot.command("removewallet", async (ctx) => {
     return ctx.reply("✅ Wallet address has been removed.");
 });
 
-const STAR_TO_USD_RATE = FEES.baseRate; // $0.013 per star
-
 // Buy command
 bot.command("buy", async (ctx) => {
     const user = await User.findOne({ chatId: ctx.chat.id });
@@ -233,7 +224,7 @@ bot.command("buy", async (ctx) => {
         });
 
         await ctx.reply(
-            `💫 *Converting ${stars} Stars* ${getNetworkIndicator()}\n\n` +
+            `💫 *Converting ${stars} Stars*\n\n` +
             `Base Amount: \\$${formatNumber(breakdown.originalAmount)}\n` +
             `Fees Breakdown:\n` +
             `• Operational Fee: \\$${formatNumber(breakdown.operationalFee)}\n` +
@@ -317,7 +308,7 @@ bot.callbackQuery(/^token_(.+)$/, async (ctx) => {
             type: "animation",
             media: EXCHANGE_SUMMARY,
             caption: 
-                `*🌉 Star Bridge Exchange Summary* ${getNetworkIndicator()}\n\n` +
+                `*🌉 Star Bridge Exchange Summary*\n\n` +
                 `*Network:* _${escapeMarkdown(SUPPORTED_CHAINS[payload.chain])} ${getNetworkIndicator()}_\n` +
                 `*Destination:* ${formatAddress(payload.walletAddress)}\n\n` +
                 `*Token:* _${escapeMarkdown(payload.token)}_\n` +
