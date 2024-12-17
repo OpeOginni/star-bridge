@@ -25,3 +25,11 @@ export function formatNumber(num: number): string {
 export function formatAddress(address: string): string {
     return `\`${escapeMarkdown(address)}\``;
 }
+
+/**
+ * Gets the network indicator for testnet
+ * @returns Network indicator string
+ */
+export function getNetworkIndicator(): string {
+    return process.env.TESTNET === "true" ? "🧪 TESTNET" : "";
+}

@@ -12,7 +12,7 @@ import { formatEther, parseEther } from "viem";
 import { InsufficientVaultBalanceError } from "./lib/CustomErrors";
 import { EXCHANGE_SUMMARY, INSUFFICIENT_VAULT_BALANCE, LOADING_STATE, SUCCESSFUL_EXCHANGE, WINDOWS_ERROR } from "./lib/links";
 import { calculateTransactionBreakdown, FEES } from "./lib/fees";
-import { escapeMarkdown, formatNumber, formatAddress } from "./lib/helper";
+import { escapeMarkdown, formatNumber, formatAddress, getNetworkIndicator } from "./lib/helper";
 
 dotenv.config();
 
@@ -103,16 +103,21 @@ bot.command("start", async (ctx) => {
         await User.create({ chatId: ctx.chat.id });
     }
 
+    const testnetWarning = process.env.TESTNET === "true" ? 
+        "\n\n*⚠️ NOTE: WE ARE CURRENTLY ON TESTNET ONLY\\!*\n" +
+        "All purchases will be processed on test networks\\." : "";
+
     await ctx.replyWithPhoto(new InputFile("./assets/star-bridge-bright.webp"), {
         caption: "Welcome to Star Bridge! ⭐\n\n" +
-        "Convert your Telegram Stars into crypto instantly!\n\n" +
+        "Convert your Telegram Stars into crypto instantly!" +
+        testnetWarning + "\n\n" +
         "Quick Start:\n" +
         "• /buy - Convert Stars to crypto\n" +
         "• /wallet - Set up your crypto wallet\n" +
         "• /history - View your conversion history\n\n" +
-        "Need help? Use /help for more information."
-    })
-
+        "Need help? Use /help for more information.",
+        parse_mode: "MarkdownV2"
+    });
 });
 
 // View wallet command
@@ -190,6 +195,16 @@ bot.command("buy", async (ctx) => {
         );
     }
 
+    // Add testnet warning if in testnet mode
+    if (process.env.TESTNET === "true") {
+        await ctx.reply(
+            "*⚠️ TESTNET MODE ACTIVE*\n\n" +
+            "Please note that all transactions are currently processed on test networks\\. " +
+            "These tokens have no real value\\.",
+            { parse_mode: "MarkdownV2" }
+        );
+    }
+
     const starsArg = ctx.match;
     if (!starsArg) {
         return ctx.reply(
@@ -218,7 +233,7 @@ bot.command("buy", async (ctx) => {
         });
 
         await ctx.reply(
-            `💫 *Converting ${stars} Stars*\n\n` +
+            `💫 *Converting ${stars} Stars* ${getNetworkIndicator()}\n\n` +
             `Base Amount: \\$${formatNumber(breakdown.originalAmount)}\n` +
             `Fees Breakdown:\n` +
             `• Operational Fee: \\$${formatNumber(breakdown.operationalFee)}\n` +
@@ -302,8 +317,8 @@ bot.callbackQuery(/^token_(.+)$/, async (ctx) => {
             type: "animation",
             media: EXCHANGE_SUMMARY,
             caption: 
-                `*🌉 Star Bridge Exchange Summary*\n\n` +
-                `*Network:* _${escapeMarkdown(SUPPORTED_CHAINS[payload.chain])}_\n` +
+                `*🌉 Star Bridge Exchange Summary* ${getNetworkIndicator()}\n\n` +
+                `*Network:* _${escapeMarkdown(SUPPORTED_CHAINS[payload.chain])} ${getNetworkIndicator()}_\n` +
                 `*Destination:* ${formatAddress(payload.walletAddress)}\n\n` +
                 `*Token:* _${escapeMarkdown(payload.token)}_\n` +
                 `*Amount:* _${formatNumber(payload.amountInToken)} ${escapeMarkdown(payload.token)}_\n` +
@@ -467,7 +482,7 @@ bot.on(":successful_payment", async (ctx) => {
         });
 
         await ctx.reply(
-            `✅ *Payment Successful\\!*\n\n` +
+            `✅ *Payment Successful\\!* ${getNetworkIndicator()}\n\n` +
             `Transaction Hash: ${formatAddress(tx)}\n\n` +
             `${escapeMarkdown(CHAIN_CONFIG[payment.chain as SupportedChains].explorer)}/tx/${escapeMarkdown(tx)}`,
             { parse_mode: "MarkdownV2" }
@@ -594,148 +609,148 @@ bot.callbackQuery('current_page', async (ctx) => {
 });
 
 // Add this new test command handler
-bot.command("simulate", async (ctx) => {
-    const user = await User.findOne({ chatId: ctx.chat.id });
+// bot.command("simulate", async (ctx) => {
+//     const user = await User.findOne({ chatId: ctx.chat.id });
 
-    if (!user?.walletAddress) {
-        return ctx.reply(
-            "⚠️ Wallet Setup Required\n\n" +
-            "Before testing, please set up your wallet using /addwallet"
-        );
-    }
+//     if (!user?.walletAddress) {
+//         return ctx.reply(
+//             "⚠️ Wallet Setup Required\n\n" +
+//             "Before testing, please set up your wallet using /addwallet"
+//         );
+//     }
 
-    const starsArg = ctx.match;
-    if (!starsArg) {
-        return ctx.reply(
-            "Please specify the number of stars:\n" +
-            "/simulate <number_of_stars>\n\n" +
-            `Example: /simulate ${Math.ceil(FEES.minimumTx / FEES.baseRate)} (minimum amount)`
-        );
-    }
+//     const starsArg = ctx.match;
+//     if (!starsArg) {
+//         return ctx.reply(
+//             "Please specify the number of stars:\n" +
+//             "/simulate <number_of_stars>\n\n" +
+//             `Example: /simulate ${Math.ceil(FEES.minimumTx / FEES.baseRate)} (minimum amount)`
+//         );
+//     }
 
-    const stars = parseInt(starsArg);
-    if (isNaN(stars) || stars <= 0) {
-        return ctx.reply("Please enter a valid number of stars.");
-    }
+//     const stars = parseInt(starsArg);
+//     if (isNaN(stars) || stars <= 0) {
+//         return ctx.reply("Please enter a valid number of stars.");
+//     }
 
-    try {
-        const breakdown = calculateTransactionBreakdown(stars);
+//     try {
+//         const breakdown = calculateTransactionBreakdown(stars);
 
-        // Simulate a payment
-        const simulatedPayload: PaymentPayload = {
-            chatId: ctx.chat.id,
-            walletAddress: user.walletAddress,
-            chain: SupportedChains.OPBNB,
-            token: Tokens.USDT,
-            stars: stars,
-            amountInToken: breakdown.netAmount,
-            amountInUSD: breakdown.netAmount,
-            operationalFee: breakdown.operationalFee,
-            serviceFee: breakdown.percentageFee,
-            totalFees: breakdown.totalFees,
-            creationTimestamp: Date.now(),
-            status: PaymentStatus.PENDING,
-            telegramPaymentChargeId: 'test-payment-' + Date.now(),
-            transactionId: ''
-        };
+//         // Simulate a payment
+//         const simulatedPayload: PaymentPayload = {
+//             chatId: ctx.chat.id,
+//             walletAddress: user.walletAddress,
+//             chain: SupportedChains.OPBNB,
+//             token: Tokens.USDT,
+//             stars: stars,
+//             amountInToken: breakdown.netAmount,
+//             amountInUSD: breakdown.netAmount,
+//             operationalFee: breakdown.operationalFee,
+//             serviceFee: breakdown.percentageFee,
+//             totalFees: breakdown.totalFees,
+//             creationTimestamp: Date.now(),
+//             status: PaymentStatus.PENDING,
+//             telegramPaymentChargeId: 'test-payment-' + Date.now(),
+//             transactionId: ''
+//         };
 
-        // Create payment record in DB
-        const payment = await Payment.create(simulatedPayload);
+//         // Create payment record in DB
+//         const payment = await Payment.create(simulatedPayload);
 
-        await ctx.reply(
-            "🧪 *TEST MODE: Simulating payment flow*\n\n" +
-            `Converting ${stars} Stars\n\n` +
-            `Base Amount: \\$${formatNumber(breakdown.originalAmount)}\n` +
-            `Fees Breakdown:\n` +
-            `• Operational Fee: \\$${formatNumber(breakdown.operationalFee)}\n` +
-            `• Service Fee: \\$${formatNumber(breakdown.percentageFee)} ` +
-            `\\(${breakdown.originalAmount >= 500 ? '1' : '2'}\\%\\)\n\n` +
-            `*Net Amount: \\$${formatNumber(breakdown.netAmount)}*`,
-            { parse_mode: "MarkdownV2" }
-        );
+//         await ctx.reply(
+//             `🧪 *TEST MODE: Simulating payment flow* ${getNetworkIndicator()}\n\n` +
+//             `Converting ${stars} Stars\n\n` +
+//             `Base Amount: \\$${formatNumber(breakdown.originalAmount)}\n` +
+//             `Fees Breakdown:\n` +
+//             `• Operational Fee: \\$${formatNumber(breakdown.operationalFee)}\n` +
+//             `• Service Fee: \\$${formatNumber(breakdown.percentageFee)} ` +
+//             `\\(${breakdown.originalAmount >= 500 ? '1' : '2'}\\%\\)\n\n` +
+//             `*Net Amount: \\$${formatNumber(breakdown.netAmount)}*`,
+//             { parse_mode: "MarkdownV2" }
+//         );
 
-        const loadingState = await ctx.replyWithAnimation(LOADING_STATE);
+//         const loadingState = await ctx.replyWithAnimation(LOADING_STATE);
 
-        // Simulate processing delay
-        await new Promise(resolve => setTimeout(resolve, 2000));
+//         // Simulate processing delay
+//         await new Promise(resolve => setTimeout(resolve, 2000));
 
-        try {
-            // Check vault balance first
-            const vaultBalance = await getTokenBalance(simulatedPayload.chain, simulatedPayload.token);
-            const requiredAmount = parseEther(simulatedPayload.amountInToken.toFixed(2));
+//         try {
+//             // Check vault balance first
+//             const vaultBalance = await getTokenBalance(simulatedPayload.chain, simulatedPayload.token);
+//             const requiredAmount = parseEther(simulatedPayload.amountInToken.toFixed(2));
 
-            if (vaultBalance < requiredAmount) {
-                throw new InsufficientVaultBalanceError(
-                    simulatedPayload.token,
-                    Number(formatEther(requiredAmount)),
-                    Number(formatEther(vaultBalance)),
-                    simulatedPayload.chain
-                );
-            }
+//             if (vaultBalance < requiredAmount) {
+//                 throw new InsufficientVaultBalanceError(
+//                     simulatedPayload.token,
+//                     Number(formatEther(requiredAmount)),
+//                     Number(formatEther(vaultBalance)),
+//                     simulatedPayload.chain
+//                 );
+//             }
 
-            // Process the token transfer
-            const tx = await sendToken(
-                simulatedPayload.walletAddress as `0x${string}`,
-                simulatedPayload.chain,
-                simulatedPayload.token,
-                simulatedPayload.amountInToken
-            );
+//             // Process the token transfer
+//             const tx = await sendToken(
+//                 simulatedPayload.walletAddress as `0x${string}`,
+//                 simulatedPayload.chain,
+//                 simulatedPayload.token,
+//                 simulatedPayload.amountInToken
+//             );
 
-            // Update payment status
-            await Payment.findByIdAndUpdate(payment._id, {
-                status: PaymentStatus.COMPLETED,
-                transactionId: tx,
-                completionTimestamp: new Date()
-            });
+//             // Update payment status
+//             await Payment.findByIdAndUpdate(payment._id, {
+//                 status: PaymentStatus.COMPLETED,
+//                 transactionId: tx,
+//                 completionTimestamp: new Date()
+//             });
 
-            await ctx.api.editMessageMedia(loadingState.chat.id, loadingState.message_id, {
-                type: "animation",
-                media: SUCCESSFUL_EXCHANGE
-            });
+//             await ctx.api.editMessageMedia(loadingState.chat.id, loadingState.message_id, {
+//                 type: "animation",
+//                 media: SUCCESSFUL_EXCHANGE
+//             });
 
-            await ctx.reply(
-                `✅ *Test Payment Successful\\!*\n\n` +
-                `Transaction Hash: ${formatAddress(tx)}\n\n` +
-                `Profit earned: \\$${formatNumber(breakdown.totalFees)}\n\n` +
-                `${escapeMarkdown(CHAIN_CONFIG[simulatedPayload.chain].explorer)}/tx/${escapeMarkdown(tx)}`,
-                { parse_mode: "MarkdownV2" }
-            );
+//             await ctx.reply(
+//                 `✅ *Test Payment Successful\\!* ${getNetworkIndicator()}\n\n` +
+//                 `Transaction Hash: ${formatAddress(tx)}\n\n` +
+//                 `Profit earned: \\$${formatNumber(breakdown.totalFees)}\n\n` +
+//                 `${escapeMarkdown(CHAIN_CONFIG[simulatedPayload.chain].explorer)}/tx/${escapeMarkdown(tx)}`,
+//                 { parse_mode: "MarkdownV2" }
+//             );
 
-        } catch (error) {
-            console.error('Test payment processing error:', error);
-            await ctx.api.deleteMessage(ctx.chat.id, loadingState.message_id);
+//         } catch (error) {
+//             console.error('Test payment processing error:', error);
+//             await ctx.api.deleteMessage(ctx.chat.id, loadingState.message_id);
 
-            let errorMessage = "⚠️ *Test Payment Failed*\n\n";
+//             let errorMessage = "⚠️ *Test Payment Failed*\n\n";
             
-            if (error instanceof InsufficientVaultBalanceError) {
-                errorMessage += `❌ *Insufficient Vault Balance*\n\n` +
-                    `Chain: ${escapeMarkdown(error.chain)}\n` +
-                    `Token: ${escapeMarkdown(error.token)}\n` +
-                    `Required: ${formatNumber(error.required)} ${escapeMarkdown(error.token)}\n` +
-                    `Available: ${formatNumber(error.available)} ${escapeMarkdown(error.token)}`;
-            } else {
-                errorMessage += "There was an error processing your test payment\\.";
-            }
+//             if (error instanceof InsufficientVaultBalanceError) {
+//                 errorMessage += `❌ *Insufficient Vault Balance*\n\n` +
+//                     `Chain: ${escapeMarkdown(error.chain)}\n` +
+//                     `Token: ${escapeMarkdown(error.token)}\n` +
+//                     `Required: ${formatNumber(error.required)} ${escapeMarkdown(error.token)}\n` +
+//                     `Available: ${formatNumber(error.available)} ${escapeMarkdown(error.token)}`;
+//             } else {
+//                 errorMessage += "There was an error processing your test payment\\.";
+//             }
             
-            await ctx.reply(errorMessage, { parse_mode: "MarkdownV2" });
+//             await ctx.reply(errorMessage, { parse_mode: "MarkdownV2" });
             
-            // Update payment status to failed
-            await Payment.findByIdAndUpdate(payment._id, {
-                status: PaymentStatus.FAILED,
-                completionTimestamp: new Date()
-            });
-        }
-    } catch (error) {
-        console.error('Fee calculation error:', error);
-        if (error instanceof Error && error.message.includes('Minimum transaction')) {
-            return ctx.reply(
-                `⚠️ Minimum transaction amount is $${FEES.minimumTx}\n` +
-                `This requires at least ${Math.ceil(FEES.minimumTx / FEES.baseRate)} stars`
-            );
-        }
-        return ctx.reply("An error occurred while processing your request.");
-    }
-});
+//             // Update payment status to failed
+//             await Payment.findByIdAndUpdate(payment._id, {
+//                 status: PaymentStatus.FAILED,
+//                 completionTimestamp: new Date()
+//             });
+//         }
+//     } catch (error) {
+//         console.error('Fee calculation error:', error);
+//         if (error instanceof Error && error.message.includes('Minimum transaction')) {
+//             return ctx.reply(
+//                 `⚠️ Minimum transaction amount is $${FEES.minimumTx}\n` +
+//                 `This requires at least ${Math.ceil(FEES.minimumTx / FEES.baseRate)} stars`
+//             );
+//         }
+//         return ctx.reply("An error occurred while processing your request.");
+//     }
+// });
 
 // Start the bot
 bot.start();
