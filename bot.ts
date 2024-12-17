@@ -186,22 +186,22 @@ bot.command("buy", async (ctx) => {
         );
     }
 
-    // Add testnet warning if in testnet mode
-    if (process.env.TESTNET === "true") {
-        await ctx.reply(
-            "*⚠️ TESTNET MODE ACTIVE*\n\n" +
-            "Please note that all transactions are currently processed on test networks\\. " +
-            "These tokens have no real value\\.",
-            { parse_mode: "MarkdownV2" }
-        );
-    }
-
     const starsArg = ctx.match;
     if (!starsArg) {
         return ctx.reply(
             "Please specify the number of stars:\n" +
             "/buy <number_of_stars>\n\n" +
             `Example: /buy ${Math.ceil(FEES.minimumTx / FEES.baseRate)} (minimum amount)`
+        );
+    }
+
+        // Add testnet warning if in testnet mode
+        if (process.env.TESTNET === "true") {
+            await ctx.reply(
+                "*⚠️ TESTNET MODE ACTIVE*\n\n" +
+                "Please note that all transactions are currently processed on test networks\\. " +
+                "These tokens have no real value\\.",
+            { parse_mode: "MarkdownV2" }
         );
     }
 
@@ -293,7 +293,7 @@ bot.callbackQuery(/^token_(.+)$/, async (ctx) => {
     try {
         // Check vault balance first
         const vaultBalance = await getTokenBalance(payload.chain, payload.token);
-        const requiredAmount = parseEther(payload.amountInToken.toFixed(2));
+        const requiredAmount = parseEther(payload.amountInToken.toFixed(3));
 
         if (vaultBalance < requiredAmount) {
             throw new InsufficientVaultBalanceError(
@@ -386,7 +386,7 @@ bot.on("pre_checkout_query", async(ctx) => {
         }
 
         const vaultBalance = await getTokenBalance(minimalPayload.chain, minimalPayload.token);
-        const requiredAmount = parseEther(minimalPayload.amountInToken.toFixed(2));
+        const requiredAmount = parseEther(minimalPayload.amountInToken.toFixed(3));
 
         if (vaultBalance < requiredAmount) {
             throw new InsufficientVaultBalanceError(
@@ -668,7 +668,7 @@ bot.callbackQuery('current_page', async (ctx) => {
 //         try {
 //             // Check vault balance first
 //             const vaultBalance = await getTokenBalance(simulatedPayload.chain, simulatedPayload.token);
-//             const requiredAmount = parseEther(simulatedPayload.amountInToken.toFixed(2));
+//             const requiredAmount = parseEther(simulatedPayload.amountInToken.toFixed(3));
 
 //             if (vaultBalance < requiredAmount) {
 //                 throw new InsufficientVaultBalanceError(

@@ -24,7 +24,7 @@ export async function sendToken(walletAddress: `0x${string}`, chain: SupportedCh
     
     const balanceInWei = await getTokenBalance(chain, token);
 
-    const amountInWei = parseEther(amountInEther.toFixed(2));
+    const amountInWei = parseEther(amountInEther.toFixed(3));
    
     if(balanceInWei < amountInWei)
         throw new Error("Insufficient Vault balance");

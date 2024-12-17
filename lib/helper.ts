@@ -14,7 +14,7 @@ export function escapeMarkdown(text: string): string {
  * @returns Formatted and escaped string
  */
 export function formatNumber(num: number): string {
-    return escapeMarkdown(num.toFixed(2));
+    return escapeMarkdown(num.toFixed(3));
 }
 
 /**
