@@ -1,5 +1,7 @@
 # Star Bridge Bot 🌉
 
+<img src="./assets/star-bridge-outline.webp" width="60px" height="60px" />
+
 Convert Telegram Stars into crypto tokens instantly! Star Bridge is a Telegram bot that allows users to exchange their Telegram Stars for various cryptocurrencies across multiple blockchain networks.
 
 ## Features
@@ -26,6 +28,16 @@ Convert Telegram Stars into crypto tokens instantly! Star Bridge is a Telegram b
 - Secure wallet address validation
 - Transaction status tracking
 - Error handling and user feedback
+
+### TG BOT
+
+TG Bot Username - [@StarBridgeTGBot](https://t.me/StarBridgeTGBot)
+
+### CONTRACTS
+
+- BSC Testnet [0x45300386d7a051335c638480b20e9db93bc919e9](https://testnet.bscscan.com/address/0x45300386d7a051335c638480b20e9db93bc919e9)
+- opBNB Testnet [0xD6e869136011388c5E863b859c1e407B7c4DC1e7](https://opbnb-testnet.bscscan.com/address/0xD6e869136011388c5E863b859c1e407B7c4DC1e7)
+- Mainnets - COMING SOON
 
 ## Architecture
 
