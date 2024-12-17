@@ -2,8 +2,10 @@
   "name": "star-bridge",
   "module": "index.ts",
   "scripts": {
-    "start": "bun run bot.ts",
-    "dev": "bun run bot.ts --watch",
+    "build": "tsup",
+    "start": "bun run build && bun run dist/bot.mjs",
+    "dev": "bun run bot.ts",
+    "docker:build": "docker build --pull --rm -f \"Dockerfile\" -t starbridge:latest \".\"",
     "ignition:bsc": "cd contract-hardhat && npx hardhat ignition deploy ignition/modules/StarBridgeVault.ts --network bsc --verify",
     "ignition:opBNB": "cd contract-hardhat && npx hardhat ignition deploy ignition/modules/StarBridgeVault.ts --network opBNB --verify",
     "ignition:bscTestnet": "cd contract-hardhat && npx hardhat ignition deploy ignition/modules/StarBridgeVault.ts --network bscTestnet --verify",
@@ -25,6 +27,7 @@
     "dotenv": "^16.4.5",
     "grammy": "^1.32.0",
     "mongoose": "^8.8.3",
+    "tsup": "^8.3.5",
     "viem": "^2.21.53"
   }
 }
