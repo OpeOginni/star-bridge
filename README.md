@@ -59,10 +59,11 @@ TG Bot Username - [@StarBridgeTGBot](https://t.me/StarBridgeTGBot)
    - Transaction history
    - Payment tracking
 
-4. **Smart Contract** (`StarBridgeVault.sol`)
+4. **Smart Contract** (Hardhat - `StarBridgeVault.sol`)
    - Manages token vault
    - Handles token deposits/withdrawals
    - Supports both ERC20 and native tokens
+   - Multiple Tests to make sure contracts are safe and secure (`./contract-hardhat/test/StarBridgeVault.ts`)
 
 
 ## Payment Flow
