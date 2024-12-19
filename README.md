@@ -89,6 +89,12 @@ TG Bot Username - [@StarBridgeTGBot](https://t.me/StarBridgeTGBot)
 
 - More token options
 - Enhanced error reporting
+- Star as Gas (Letting users pay for transactions on the BSC and opBNB chain using stars)
 - Admin dashboard
 - Rate adjustment mechanism
 - Automated refund system
+
+### Media
+
+- [Demo Video](https://youtu.be/HukW4R4KwkE)
+- [Pitch Deck](https://www.canva.com/design/DAGZesxoLIc/G-lKUU_KMFnl1EvV8o-cqQ/edit?utm_content=DAGZesxoLIc&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton)
